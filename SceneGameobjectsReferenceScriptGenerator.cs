@@ -86,7 +86,7 @@ public class MainSceneGameObjectReferences : MonoBehaviour
             var obj = AllChildren.FirstOrDefault(n => { return n.name == FieldInfoName; });
             if (obj == null)
             {
-                Debug.LogError(""how is this possible---field name   "" + FieldInfoName);
+                Debug.LogError(""Maybe you forgot to compile.eroor caused by-Fieldname    "" + FieldInfoName);
                 Debug.Break();
                 return;
             }
