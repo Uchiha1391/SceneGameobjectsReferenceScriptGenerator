@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using ES3Types;
 using Sirenix.OdinInspector;
 using Sirenix.OdinInspector.Editor;
@@ -21,25 +22,30 @@ public class NewReferenceScriptGeneratorWindow : OdinEditorWindow
 
 
 
-    [Required]
-    public GameObject RootGameObject;
+    [Required,SerializeField] private GameObject _rootGameObject;
+ 
 
-    [TabGroup("Generate References Script")] [Space(15.0f)] [Required]
-    public List<(string ClassName,GameObject parentGameObject, List<GameObject> ObjectsList)> _ScriptNameAndObjectsList =
-        new List<(string ClassName, GameObject parentGameObject, List<GameObject> ObjectsList)>();
-
-    [TabGroup("Extend References Script")]
-    [Space(15.0f)]
-    [Required]
-    [SerializeField]
+    [SerializeField,TabGroup("Generate References Script")] [Space(15.0f)] [Required]
+     List<(string ClassName, GameObject parentGameObject, List<GameObject> ObjectsList)>
+        _ScriptNameAndObjectsList =
+            new List<(string ClassName, GameObject parentGameObject, List<GameObject> ObjectsList
+                )>();
+    [ SerializeField,ReadOnly, TabGroup("Generate References Script")]
+    private int _fillReferencesQueueCount;
+    [TabGroup("Extend References Script")] [Space(15.0f)] [Required] [SerializeField]
     private GameObject OriginalScriptObject;
-    [TabGroup("Extend References Script")] [Space(15.0f)] [Required]
-    public List<GameObject> ExtendScriptObjectList = new List<GameObject>();
+
+    [SerializeField,TabGroup("Extend References Script")] [Space(15.0f)] [Required]
+    private List<GameObject> ExtendScriptObjectList = new List<GameObject>();
 
 
 
-    [HideInInspector] public List<(string, GameObject parentGameObject)> _refreshedClassesNames =
+    [HideInInspector] private List<(string, GameObject parentGameObject)> _refreshedClassesNames =
         new List<(string, GameObject parentGameObject)>();
+
+    private string _baseReferenceSingletonsScriptsPath=
+           @"C:\Unity Projects Real\symlimktest\Assets\Real project\";
+
 
 
     [MenuItem("My Ui Commands/Open_NewReferenceScriptGeneratorWindow")]
@@ -80,24 +86,17 @@ public class NewReferenceScriptGeneratorWindow : OdinEditorWindow
             return;
         }
 
-        for (var index = 0; index < _ScriptNameAndObjectsList.Count; index++)
-        {
-            var valueTuple = _ScriptNameAndObjectsList[index];
-
-            if (IsNullOrEmpty(valueTuple.ClassName))
-            {
-                Debug.LogError(
-                    "empty string is not a valid name for class, So not generating it");
-                continue;
-            }
-
-            valueTuple.ClassName += "ReferenceSingleton";
-            _ScriptNameAndObjectsList[index] = valueTuple;
-        }
 
         foreach (var (className, parentGameObject, objectsList) in _ScriptNameAndObjectsList)
         {
-            GenerateScriptInternal(className, objectsList, false);
+
+            if (IsNullOrEmpty(className))
+            {
+                Debug.LogError("empty string is not a valid name for class, So not generating it");
+                continue;
+            }
+
+            GenerateScriptInternal(className, objectsList, false, false);
         }
     }
 
@@ -118,8 +117,8 @@ public class NewReferenceScriptGeneratorWindow : OdinEditorWindow
         NewobjectsList.AddRange(exisitinGiveAllObjectReferenes);
         foreach (var o in ExtendScriptObjectList)
         {
-            var b=NewobjectsList.Contains(o);
-            if(b)
+            var b = NewobjectsList.Contains(o);
+            if (b)
             {
                 Debug.LogWarning($"{o.name}  was already present in original script references.");
                 continue;
@@ -127,11 +126,11 @@ public class NewReferenceScriptGeneratorWindow : OdinEditorWindow
 
             NewobjectsList.Add(o);
         }
-    
-        GenerateScriptInternal(ExistingScriptName, NewobjectsList, true);
+
+        GenerateScriptInternal(ExistingScriptName, NewobjectsList, true, true);
     }
 
-    [Button,TabGroup("Extend References Script")]
+    [Button, TabGroup("Extend References Script")]
     public void FillReferencesForExtendscript()
     {
         var referenceSingleton = OriginalScriptObject.GetComponent<IReferenceSingleton>();
@@ -141,20 +140,29 @@ public class NewReferenceScriptGeneratorWindow : OdinEditorWindow
                 "The original gameobject doesn't have any existing script that derive from IReferenceSingleton");
             return;
         }
+
         var ExistingScriptName = referenceSingleton.getScriptName();
         FillrereferneceForExtendAndRefreshInternal((ExistingScriptName, OriginalScriptObject));
     }
 
     private void GenerateScriptInternal(string ClassName,
-        List<GameObject> gameObjectList,bool overwirteExistingScript)
+        IReadOnlyCollection<GameObject> gameObjectList,
+        bool overwirteExistingScript,
+        bool isSciptExtendedOrRefreshed)
     {
+        if (!isSciptExtendedOrRefreshed)
+        {
+            ClassName += "ReferenceSingleton";
+        }
+
         var newclassFilePath = Application.dataPath + $"\\Real project\\{ClassName}.cs";
 
         if (!overwirteExistingScript)
         {
             if (File.Exists(newclassFilePath))
             {
-                Debug.LogWarning("File already exist and overwrite is off, so returning...");
+                EditorUtility.DisplayDialog("",
+                    "File already exist and overwrite is off, so returning...", "ok");
                 return;
             }
         }
@@ -176,21 +184,30 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
         List<GameObject> fileteredGameObjects = new List<GameObject>();
         foreach (var child in gameObjectList)
         {
-            var b = CheckIfGameobjectpresentInOthereReferenceSignletonScript(child, RootGameObject);
-
-            if (b)
+            if (!isSciptExtendedOrRefreshed)
             {
-                continue;
+                var b = CheckIfGameobjectpresentInOthereReferenceSignletonScript(child,
+                    _rootGameObject);
+
+
+                if (b)
+                {
+                    Debug.LogError("Script generation is halted");
+                    return;
+                    
+                    // continue;
+                }
             }
+
             fileteredGameObjects.Add(child);
         }
 
-        if(fileteredGameObjects.Count==0)return;
-        
+        if (fileteredGameObjects.Count == 0) return;
+
         foreach (var child in fileteredGameObjects)
         {
 
-           
+
 
             string childName = child.name;
 
@@ -282,8 +299,13 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
         File.Delete(newclassFilePath);
 
         File.WriteAllText(newclassFilePath, Contents);
+        if (!isSciptExtendedOrRefreshed)
+        {
+            AddFileToCsProj(ClassName);
 
-        AssetDatabase.Refresh();
+        }
+
+        _fillReferencesQueueCount++;
     }
 
     private string ProcessGameObjectsNames(string childName)
@@ -302,16 +324,27 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
 
         return trimmed;
     }
+    [Button, TabGroup("Generate References Script")]
+    private void Compile()
+    {
+        AssetDatabase.Refresh();
 
+    }
+
+    
 
     [Button, TabGroup("Generate References Script")]
     private void FillReferences()
     {
         foreach (var (NewClassName, parentGameObject, objectsList) in _ScriptNameAndObjectsList)
         {
-            Debug.Log("FillReferences called sucessful");
-            var newClassType = GetNewlyGeneratedScriptType(NewClassName);
-            if (newClassType == null) return;
+            var newClassType = GetNewlyGeneratedScriptType(NewClassName + "ReferenceSingleton");
+            if (newClassType == null)
+            {
+                Debug.Log("Type not found Maybe you havent compiled unity.");
+
+                return;
+            }
 
             var componentInstance = parentGameObject.AddComponent(newClassType);
 
@@ -337,6 +370,9 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
 
             Debug.Log("script is sucessfully generated");
         }
+        _ScriptNameAndObjectsList.Clear();
+        _fillReferencesQueueCount = 0;
+
     }
 
     private Type GetNewlyGeneratedScriptType(string classname)
@@ -349,7 +385,7 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
 
         if (assemblyWhichContainType == null)
         {
-            Debug.LogError(" cannot find the assembly for the newly generated type");
+            Debug.LogError(" cannot find the assembly for the newly generated type--"+classname);
             return null;
         }
 
@@ -362,7 +398,7 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
     public void RefreshScriptsForNameChangesInHierircy()
     {
         List<GameObject> goReferences = new List<GameObject>();
-        var rootGameObject = RootGameObject;
+        var rootGameObject = _rootGameObject;
         if (rootGameObject == null)
         {
             Debug.LogError("Fill the root gamoject field");
@@ -384,7 +420,7 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
 
             var className = generatedSciptInstance.GetType().Name;
             _refreshedClassesNames.Add((className, goReferences[0]));
-            GenerateScriptInternal(className, goReferences, true);
+            GenerateScriptInternal(className, goReferences, true, true);
         }
     }
 
@@ -400,7 +436,8 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
         Debug.Log("References are filled sucessfully");
     }
 
-    private void FillrereferneceForExtendAndRefreshInternal((string classname, GameObject parentGameObject) valueTuple)
+    private void FillrereferneceForExtendAndRefreshInternal(
+        (string classname, GameObject parentGameObject) valueTuple)
     {
         var newClassType = GetNewlyGeneratedScriptType(valueTuple.classname);
 
@@ -415,7 +452,8 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
                 continue; // can't use bindingFlag.Instance as its not yet created. I mean its not in playmode this code runs in editor mode
             string fieldInfoName = fieldInfo.Name;
 
-            var obj = GameObject.Find(fieldInfoName);
+            var obj = _rootGameObject.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(n => n.gameObject.name == fieldInfoName);
 
             if (obj == null)
             {
@@ -430,14 +468,14 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
     }
 
 
-    public bool CheckIfGameobjectpresentInOthereReferenceSignletonScript(GameObject obj,
+    private bool CheckIfGameobjectpresentInOthereReferenceSignletonScript(GameObject obj,
         GameObject rootGameObject)
     {
         var generatedSciptInstances =
-          rootGameObject.GetComponentsInChildren<IReferenceSingleton>(true);
+            rootGameObject.GetComponentsInChildren<IReferenceSingleton>(true);
         if (generatedSciptInstances.Length == 0)
         {
-            Debug.Log("No script to refresh :)");
+            return false;
         }
 
         foreach (var generatedSciptInstance in generatedSciptInstances)
@@ -447,22 +485,31 @@ public class {ClassName} : MonoBehaviour,IReferenceSingleton
             if (goObjectReferenes.Contains(obj))
             {
 
-                Debug.LogError(obj.name+" is already present in other reference singleton script. script name is"+generatedSciptInstance.getScriptName());
+                Debug.LogError(obj.name +
+                               " is already present in other reference singleton script. script name is" +
+                               generatedSciptInstance.getScriptName());
                 return true;
             }
         }
+
         return false;
 
     }
-    [Button, TabGroup("Generate References Script")]
 
-    public void ClearReferenceSIngletionfromScriptName()
+
+    private void AddFileToCsProj(string fileName)
     {
-        for (var index = 0; index < _ScriptNameAndObjectsList.Count; index++)
-        {
-            var valueTuple = _ScriptNameAndObjectsList[index];
-           valueTuple.ClassName= valueTuple.ClassName.Replace("ReferenceSingleton", "");
-            _ScriptNameAndObjectsList[index] = valueTuple;
-        }
+        var fullPath = _baseReferenceSingletonsScriptsPath + fileName+".cs";
+        var pathToCsProj = Directory.GetParent(Application.dataPath).FullName;
+        var assemblyCsharpCsprojPath = pathToCsProj + "/Assembly-CSharp.csproj";
+        var doc = XDocument.Load(assemblyCsharpCsprojPath);
+        var compiletDescendants = doc.Descendants().ToList();
+        var checkk = compiletDescendants.FirstOrDefault(n => n.Name.LocalName == "Compile");
+    
+            checkk?.AddAfterSelf(new XElement("Compile",
+                new XAttribute("Include", fullPath)));
+        
+        doc.Save(assemblyCsharpCsprojPath);
     }
+
 }
